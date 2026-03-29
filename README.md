@@ -171,7 +171,7 @@ You can edit `messages.yml` in your panel to change all command and plugin messa
 ## Development notes
 
 - Java target: `17`
-- API target: Paper `1.20.1-R0.1-SNAPSHOT`
+- API target: Paper `1.21.1-R0.1-SNAPSHOT`
 
 ## Current project status
 

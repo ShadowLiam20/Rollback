@@ -1,7 +1,7 @@
 name: RollbackPlugin
 version: '1.0'
 main: com.shadow.rollback.RollbackPlugin
-api-version: '1.20'
+api-version: '1.21'
 commands:
   rollbacks:
     description: Lookup, rollback, restore and purge rollback history
