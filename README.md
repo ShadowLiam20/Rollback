@@ -33,6 +33,7 @@ Current limitations:
 - Player inventory restore only works if that player is online
 - Inventory logging is a base implementation and does not yet cover every possible item movement source
 - Entity rollback is basic and does not restore every possible entity property or interaction
+- Entity rollback currently focuses on bringing dead entities back instead of removing newly spawned ones
 
 ## Supported rollback types
 
@@ -40,7 +41,7 @@ Current limitations:
 Rolls back logged block place and block break changes.
 
 ### `entities`
-Rolls back logged living entity spawns and deaths.
+Brings back logged living entities that died in the selected time period.
 
 ### `inventory`
 Rolls back logged player inventory and container inventory changes, such as chests.

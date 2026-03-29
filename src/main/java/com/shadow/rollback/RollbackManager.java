@@ -124,30 +124,7 @@ public class RollbackManager {
     }
 
     public RollbackResult rollbackEntities(long sinceEpochMillis, RollbackFilter filter) {
-        int removed = 0;
         int respawned = 0;
-
-        synchronized (entitySpawns) {
-            for (int i = entitySpawns.size() - 1; i >= 0; i--) {
-                EntitySnapshot snapshot = entitySpawns.get(i);
-                if (!matchesEntity(snapshot, sinceEpochMillis, filter)) {
-                    continue;
-                }
-
-                World world = Bukkit.getWorld(snapshot.worldId());
-                if (world == null) {
-                    continue;
-                }
-
-                Entity entity = world.getEntity(snapshot.entityUuid());
-                if (entity != null && entity.isValid()) {
-                    entity.remove();
-                    removed++;
-                }
-            }
-
-            entitySpawns.removeIf(snapshot -> matchesEntity(snapshot, sinceEpochMillis, filter));
-        }
 
         synchronized (entityDeaths) {
             for (int i = entityDeaths.size() - 1; i >= 0; i--) {
@@ -173,7 +150,7 @@ public class RollbackManager {
             entityDeaths.removeIf(snapshot -> matchesEntity(snapshot, sinceEpochMillis, filter));
         }
 
-        return new RollbackResult(0, removed, respawned, 0);
+        return new RollbackResult(0, 0, respawned, 0);
     }
 
     public RollbackResult rollbackAll(long sinceEpochMillis, RollbackFilter filter) {

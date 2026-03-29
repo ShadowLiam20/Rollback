@@ -82,7 +82,6 @@ public class RollbackCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.YELLOW + "Blocks teruggezet: " + result.blocksChanged());
         }
         if (target.equals("entities") || target.equals("all")) {
-            sender.sendMessage(ChatColor.YELLOW + "Entities verwijderd: " + result.entitiesRemoved());
             sender.sendMessage(ChatColor.YELLOW + "Entities teruggespawned: " + result.entitiesRespawned());
         }
         if (target.equals("inventory") || target.equals("all")) {
