@@ -15,9 +15,9 @@ public class RollbackPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        PluginCommand rollbackCommand = getCommand("rollback");
+        PluginCommand rollbackCommand = getCommand("rollbacks");
         if (rollbackCommand == null) {
-            throw new IllegalStateException("Command 'rollback' is not defined in plugin.yml");
+            throw new IllegalStateException("Command 'rollbacks' is not defined in plugin.yml");
         }
 
         reloadState();

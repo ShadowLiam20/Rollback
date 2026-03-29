@@ -53,13 +53,13 @@ Runs block, entity, and inventory rollback together.
 ### Main command
 
 ```text
-/rollback <blocks|entities|inventory|all> <time> [radius=20] [player=Name] [world=world]
+/rollbacks <blocks|entities|inventory|all> <time> [radius=20] [player=Name] [world=world]
 ```
 
 ### Reload command
 
 ```text
-/rollback reload
+/rollbacks reload
 ```
 
 ## Time format
@@ -85,7 +85,7 @@ Limits rollback to a radius around the executing player's current location.
 
 Example:
 ```text
-/rollback blocks 10m radius=30
+/rollbacks blocks 10m radius=30
 ```
 
 ### `player=`
@@ -93,7 +93,7 @@ Filters rollback to changes linked to a specific player where supported.
 
 Example:
 ```text
-/rollback inventory 20m player=Liam
+/rollbacks inventory 20m player=Liam
 ```
 
 ### `world=`
@@ -101,21 +101,21 @@ Limits rollback to a specific world.
 
 Example:
 ```text
-/rollback all 1h world=world_nether
+/rollbacks all 1h world=world_nether
 ```
 
 ## Example commands
 
 ```text
-/rollback blocks 10m
-/rollback entities 5m
-/rollback inventory 15m
-/rollback all 30m
-/rollback blocks 10m player=Liam
-/rollback inventory 20m world=world
-/rollback all 5m radius=50
-/rollback all 10m radius=25 player=Liam world=world
-/rollback reload
+/rollbacks blocks 10m
+/rollbacks entities 5m
+/rollbacks inventory 15m
+/rollbacks all 30m
+/rollbacks blocks 10m player=Liam
+/rollbacks inventory 20m world=world
+/rollbacks all 5m radius=50
+/rollbacks all 10m radius=25 player=Liam world=world
+/rollbacks reload
 ```
 
 ## Permission
