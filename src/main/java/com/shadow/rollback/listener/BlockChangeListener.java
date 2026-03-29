@@ -1,7 +1,6 @@
 package com.shadow.rollback.listener;
 
 import com.shadow.rollback.RollbackManager;
-import com.shadow.rollback.model.BlockChangeRecord;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -25,31 +24,29 @@ public class BlockChangeListener implements Listener {
         Block block = event.getBlockPlaced();
         BlockState replacedState = event.getBlockReplacedState();
 
-        rollbackManager.logBlockChange(new BlockChangeRecord(
-                System.currentTimeMillis(),
+        rollbackManager.logBlockChange(
                 event.getPlayer().getName(),
-                block.getWorld().getUID(),
+                block.getWorld(),
                 block.getX(),
                 block.getY(),
                 block.getZ(),
                 replacedState.getBlockData().getAsString(),
                 block.getBlockData().getAsString()
-        ));
+        );
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
 
-        rollbackManager.logBlockChange(new BlockChangeRecord(
-                System.currentTimeMillis(),
+        rollbackManager.logBlockChange(
                 event.getPlayer().getName(),
-                block.getWorld().getUID(),
+                block.getWorld(),
                 block.getX(),
                 block.getY(),
                 block.getZ(),
                 block.getBlockData().getAsString(),
                 Bukkit.createBlockData(Material.AIR).getAsString()
-        ));
+        );
     }
 }

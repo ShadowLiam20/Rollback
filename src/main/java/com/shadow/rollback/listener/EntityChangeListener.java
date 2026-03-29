@@ -2,7 +2,6 @@ package com.shadow.rollback.listener;
 
 import com.shadow.rollback.RollbackManager;
 import com.shadow.rollback.model.EntitySnapshot;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,8 +20,7 @@ public class EntityChangeListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCreatureSpawn(CreatureSpawnEvent event) {
-        LivingEntity entity = event.getEntity();
-        rollbackManager.logEntitySpawn(EntitySnapshot.from(entity, System.currentTimeMillis()));
+        // Reserved for future spawn logging.
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

@@ -1,12 +1,18 @@
 package com.shadow.rollback.command;
 
-import com.shadow.rollback.RollbackPlugin;
 import com.shadow.rollback.RollbackManager;
-import com.shadow.rollback.model.RollbackFilter;
+import com.shadow.rollback.RollbackPlugin;
+import com.shadow.rollback.config.MessageConfig;
+import com.shadow.rollback.model.ActionRecord;
+import com.shadow.rollback.model.ActionType;
+import com.shadow.rollback.model.QueryFilter;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import org.bukkit.ChatColor;
+import java.util.Map;
+import java.util.Set;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -19,81 +25,229 @@ public class RollbackCommand implements CommandExecutor, TabCompleter {
 
     private final RollbackPlugin plugin;
     private final RollbackManager rollbackManager;
+    private final MessageConfig messages;
 
     public RollbackCommand(RollbackPlugin plugin, RollbackManager rollbackManager) {
         this.plugin = plugin;
         this.rollbackManager = rollbackManager;
+        this.messages = plugin.messages();
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("rollback.use")) {
-            sender.sendMessage(ChatColor.RED + "Je hebt geen permissie voor dit command.");
+            sender.sendMessage(messages.get("command.no-permission"));
             return true;
         }
 
-        if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            plugin.reloadState();
-            sender.sendMessage(ChatColor.GREEN + "RollbackPlugin state opnieuw geladen.");
-            sender.sendMessage(ChatColor.GRAY + "De opgeslagen rollback-geschiedenis van deze sessie is gewist.");
-            return true;
-        }
-
-        if (args.length < 2) {
+        if (args.length == 0) {
             sendUsage(sender);
             return true;
         }
 
-        String target = args[0].toLowerCase(Locale.ROOT);
-        Long durationMillis = parseDurationMillis(args[1]);
-        if (durationMillis == null || durationMillis <= 0L) {
-            sender.sendMessage(ChatColor.RED + "Ongeldige tijd. Gebruik bijvoorbeeld 30s, 10m, 2h of 1d.");
-            return true;
-        }
-
-        ParsedOptions options = parseOptions(sender, args);
-        if (options == null) {
-            return true;
-        }
-
-        long sinceEpochMillis = System.currentTimeMillis() - durationMillis;
-        RollbackManager.RollbackResult result;
-        RollbackFilter filter = new RollbackFilter(
-                options.playerName(),
-                options.worldName(),
-                options.radius(),
-                options.center()
-        );
-
-        switch (target) {
-            case "blocks" -> result = rollbackManager.rollbackBlocks(sinceEpochMillis, filter);
-            case "entities" -> result = rollbackManager.rollbackEntities(sinceEpochMillis, filter);
-            case "inventory" -> result = rollbackManager.rollbackInventories(sinceEpochMillis, filter);
-            case "all" -> result = rollbackManager.rollbackAll(sinceEpochMillis, filter);
+        String subcommand = args[0].toLowerCase(Locale.ROOT);
+        return switch (subcommand) {
+            case "reload" -> handleReload(sender);
+            case "lookup" -> handleLookup(sender, args);
+            case "rollback" -> handleRollback(sender, args);
+            case "restore" -> handleRestore(sender, args);
+            case "purge" -> handlePurge(sender, args);
             default -> {
                 sendUsage(sender);
-                return true;
+                yield true;
             }
-        }
+        };
+    }
 
-        sender.sendMessage(ChatColor.GREEN + "Rollback uitgevoerd voor " + args[1] + ".");
-        sender.sendMessage(ChatColor.GRAY + describeFilter(options));
-        if (target.equals("blocks") || target.equals("all")) {
-            sender.sendMessage(ChatColor.YELLOW + "Blocks teruggezet: " + result.blocksChanged());
-        }
-        if (target.equals("entities") || target.equals("all")) {
-            sender.sendMessage(ChatColor.YELLOW + "Entities teruggespawned: " + result.entitiesRespawned());
-        }
-        if (target.equals("inventory") || target.equals("all")) {
-            sender.sendMessage(ChatColor.YELLOW + "Inventories hersteld: " + result.inventoriesRestored());
-        }
-        sender.sendMessage(ChatColor.GRAY + "Alleen acties gelogd sinds plugin-start worden meegenomen.");
+    private boolean handleReload(CommandSender sender) {
+        plugin.reloadState();
+        sender.sendMessage(messages.get("command.reload-success"));
         return true;
     }
 
+    private boolean handleLookup(CommandSender sender, String[] args) {
+        ParsedRequest request = parseTargetedRequest(sender, args, false);
+        if (request == null) {
+            return true;
+        }
+
+        RollbackManager.LookupResult result = rollbackManager.lookup(request.sinceEpochMillis(), request.filter(), request.types());
+        sender.sendMessage(messages.format("command.lookup-header", Map.of("target", args[1], "time", args[2])));
+        sender.sendMessage(describeFilter(request.filter()));
+        sender.sendMessage(messages.format("command.blocks-line", Map.of("count", Integer.toString(result.blocks()))));
+        sender.sendMessage(messages.format("command.inventories-line", Map.of("count", Integer.toString(result.inventories()))));
+        sender.sendMessage(messages.format("command.entities-line", Map.of("count", Integer.toString(result.entities()))));
+
+        int shown = Math.min(5, result.records().size());
+        for (int i = 0; i < shown; i++) {
+            ActionRecord record = result.records().get(i);
+            sender.sendMessage(messages.format("command.lookup-entry", Map.of(
+                    "id", Long.toString(record.id()),
+                    "type", record.actionType().name().toLowerCase(Locale.ROOT),
+                    "actor", fallback(record.actorName(), "-"),
+                    "world", record.worldName(),
+                    "x", Integer.toString((int) record.x()),
+                    "y", Integer.toString((int) record.y()),
+                    "z", Integer.toString((int) record.z()),
+                    "age", formatAge(record.timestamp())
+            )));
+        }
+        return true;
+    }
+
+    private boolean handleRollback(CommandSender sender, String[] args) {
+        ParsedRequest request = parseTargetedRequest(sender, args, false);
+        if (request == null) {
+            return true;
+        }
+
+        RollbackManager.RollbackResult result = rollbackManager.rollback(request.sinceEpochMillis(), request.filter(), request.types());
+        sendApplyResult(sender, "Rollback", args[2], request.filter(), result);
+        return true;
+    }
+
+    private boolean handleRestore(CommandSender sender, String[] args) {
+        ParsedRequest request = parseTargetedRequest(sender, args, false);
+        if (request == null) {
+            return true;
+        }
+
+        RollbackManager.RollbackResult result = rollbackManager.restore(request.sinceEpochMillis(), request.filter(), request.types());
+        sendApplyResult(sender, "Restore", args[2], request.filter(), result);
+        return true;
+    }
+
+    private boolean handlePurge(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(messages.get("command.purge-usage"));
+            return true;
+        }
+
+        if (args[1].equalsIgnoreCase("all")) {
+            int deleted = rollbackManager.purgeAll();
+            sender.sendMessage(messages.format("command.purge-all-success", Map.of("count", Integer.toString(deleted))));
+            return true;
+        }
+
+        Long durationMillis = parseDurationMillis(args[1]);
+        if (durationMillis == null || durationMillis <= 0L) {
+            sender.sendMessage(messages.get("command.invalid-time"));
+            return true;
+        }
+
+        int deleted = rollbackManager.purge(System.currentTimeMillis() - durationMillis);
+        sender.sendMessage(messages.format("command.purge-success", Map.of("time", args[1], "count", Integer.toString(deleted))));
+        return true;
+    }
+
+    private ParsedRequest parseTargetedRequest(CommandSender sender, String[] args, boolean allowAllTime) {
+        if (args.length < 3) {
+            sendUsage(sender);
+            return null;
+        }
+
+        String target = args[1].toLowerCase(Locale.ROOT);
+        Set<ActionType> types = RollbackManager.resolveTypes(target);
+        if (types.isEmpty()) {
+            sender.sendMessage(messages.format("command.unknown-target", Map.of("target", target)));
+            return null;
+        }
+
+        Long durationMillis = parseDurationMillis(args[2]);
+        if (!allowAllTime && (durationMillis == null || durationMillis <= 0L)) {
+            sender.sendMessage(messages.get("command.invalid-time"));
+            return null;
+        }
+
+        ParsedOptions options = parseOptions(sender, args, 3);
+        if (options == null) {
+            return null;
+        }
+
+        long sinceEpochMillis = System.currentTimeMillis() - durationMillis;
+        QueryFilter filter = new QueryFilter(options.playerName(), options.worldName(), options.radius(), options.center(), options.limit());
+        return new ParsedRequest(types, sinceEpochMillis, filter);
+    }
+
+    private ParsedOptions parseOptions(CommandSender sender, String[] args, int startIndex) {
+        Integer radius = null;
+        Integer limit = null;
+        String playerName = null;
+        String worldName = null;
+        Location center = null;
+
+        for (int i = startIndex; i < args.length; i++) {
+            String arg = args[i];
+            int separator = arg.indexOf('=');
+            if (separator <= 0 || separator == arg.length() - 1) {
+                sender.sendMessage(messages.get("command.invalid-filter-format"));
+                return null;
+            }
+
+            String key = arg.substring(0, separator).toLowerCase(Locale.ROOT);
+            String value = arg.substring(separator + 1);
+            switch (key) {
+                case "radius" -> radius = parsePositiveInt(sender, value, "Radius");
+                case "limit" -> limit = parsePositiveInt(sender, value, "Limit");
+                case "player" -> playerName = value;
+                case "world" -> {
+                    World world = rollbackManager.plugin().getServer().getWorld(value);
+                    if (world == null) {
+                        sender.sendMessage(messages.format("command.world-not-found", Map.of("world", value)));
+                        return null;
+                    }
+                    worldName = world.getName();
+                }
+                default -> {
+                    sender.sendMessage(messages.format("command.unknown-filter", Map.of("filter", key)));
+                    return null;
+                }
+            }
+            if ((key.equals("radius") || key.equals("limit")) && ((key.equals("radius") ? radius : limit) == null)) {
+                return null;
+            }
+        }
+
+        if (radius != null) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(messages.get("command.radius-player-only"));
+                return null;
+            }
+            center = player.getLocation();
+            if (worldName == null) {
+                worldName = player.getWorld().getName();
+            }
+        }
+
+        return new ParsedOptions(radius, playerName, worldName, center, limit);
+    }
+
+    private Integer parsePositiveInt(CommandSender sender, String value, String fieldName) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                sender.sendMessage(messages.format("command.integer-positive", Map.of("field", fieldName)));
+                return null;
+            }
+            return parsed;
+        } catch (NumberFormatException exception) {
+            sender.sendMessage(messages.format("command.integer-required", Map.of("field", fieldName)));
+            return null;
+        }
+    }
+
+    private void sendApplyResult(CommandSender sender, String actionName, String timeArg, QueryFilter filter, RollbackManager.RollbackResult result) {
+        sender.sendMessage(messages.format("command.action-success", Map.of("action", actionName, "time", timeArg)));
+        sender.sendMessage(describeFilter(filter));
+        sender.sendMessage(messages.format("command.blocks-line", Map.of("count", Integer.toString(result.blocksAffected()))));
+        sender.sendMessage(messages.format("command.inventories-line", Map.of("count", Integer.toString(result.inventoriesAffected()))));
+        sender.sendMessage(messages.format("command.entities-line", Map.of("count", Integer.toString(result.entitiesAffected()))));
+    }
+
     private void sendUsage(CommandSender sender) {
-        sender.sendMessage(ChatColor.RED + "Gebruik: /rollback <blocks|entities|inventory|all> <tijd> [radius=20] [player=Naam] [world=world]");
-        sender.sendMessage(ChatColor.RED + "Of: /rollback reload");
+        for (String line : messages.getList("command.usage")) {
+            sender.sendMessage(line);
+        }
     }
 
     private Long parseDurationMillis(String input) {
@@ -103,7 +257,6 @@ public class RollbackCommand implements CommandExecutor, TabCompleter {
 
         char unit = Character.toLowerCase(input.charAt(input.length() - 1));
         String numberPart = input.substring(0, input.length() - 1);
-
         long value;
         try {
             value = Long.parseLong(numberPart);
@@ -120,103 +273,70 @@ public class RollbackCommand implements CommandExecutor, TabCompleter {
         };
     }
 
-    private ParsedOptions parseOptions(CommandSender sender, String[] args) {
-        Integer radius = null;
-        String playerName = null;
-        String worldName = null;
-        Location center = null;
-
-        for (int i = 2; i < args.length; i++) {
-            String arg = args[i];
-            int separator = arg.indexOf('=');
-            if (separator <= 0 || separator == arg.length() - 1) {
-                sender.sendMessage(ChatColor.RED + "Gebruik optionele filters als radius=20, player=Naam of world=world.");
-                return null;
-            }
-
-            String key = arg.substring(0, separator).toLowerCase(Locale.ROOT);
-            String value = arg.substring(separator + 1);
-
-            switch (key) {
-                case "radius" -> {
-                    try {
-                        radius = Integer.parseInt(value);
-                    } catch (NumberFormatException exception) {
-                        sender.sendMessage(ChatColor.RED + "Radius moet een heel getal zijn.");
-                        return null;
-                    }
-
-                    if (radius <= 0) {
-                        sender.sendMessage(ChatColor.RED + "Radius moet groter zijn dan 0.");
-                        return null;
-                    }
-                }
-                case "player" -> playerName = value;
-                case "world" -> {
-                    World world = rollbackManager.plugin().getServer().getWorld(value);
-                    if (world == null) {
-                        sender.sendMessage(ChatColor.RED + "Wereld niet gevonden: " + value);
-                        return null;
-                    }
-                    worldName = world.getName();
-                }
-                default -> {
-                    sender.sendMessage(ChatColor.RED + "Onbekende filter: " + key);
-                    return null;
-                }
-            }
-        }
-
-        if (radius != null) {
-            if (!(sender instanceof Player player)) {
-                sender.sendMessage(ChatColor.RED + "Radius kan alleen gebruikt worden door een speler.");
-                return null;
-            }
-
-            center = player.getLocation();
-            if (worldName == null) {
-                worldName = player.getWorld().getName();
-            }
-        }
-
-        return new ParsedOptions(radius, playerName, worldName, center);
+    private String describeFilter(QueryFilter filter) {
+        return messages.format("command.filters-line", Map.of(
+                "radius", filter.radius() == null ? "off" : Integer.toString(filter.radius()),
+                "player", fallback(filter.playerName(), "off"),
+                "world", fallback(filter.worldName(), "all"),
+                "limit", filter.limit() == null ? "default" : Integer.toString(filter.limit())
+        ));
     }
 
-    private String describeFilter(ParsedOptions options) {
-        List<String> parts = new ArrayList<>();
-        parts.add("Filters:");
-        parts.add("radius=" + (options.radius() == null ? "uit" : options.radius()));
-        parts.add("player=" + (options.playerName() == null ? "uit" : options.playerName()));
-        parts.add("world=" + (options.worldName() == null ? "alle" : options.worldName()));
-        return String.join(" ", parts);
+    private String formatAge(long timestamp) {
+        Duration age = Duration.between(Instant.ofEpochMilli(timestamp), Instant.now());
+        long seconds = Math.max(0L, age.getSeconds());
+        if (seconds < 60) {
+            return seconds + "s ago";
+        }
+        if (seconds < 3600) {
+            return (seconds / 60) + "m ago";
+        }
+        if (seconds < 86400) {
+            return (seconds / 3600) + "h ago";
+        }
+        return (seconds / 86400) + "d ago";
+    }
+
+    private String fallback(String value, String fallback) {
+        return value == null || value.isEmpty() ? fallback : value;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
-
         if (args.length == 1) {
-            for (String option : List.of("blocks", "entities", "inventory", "all", "reload")) {
+            for (String option : List.of("lookup", "rollback", "restore", "purge", "reload")) {
                 if (option.startsWith(args[0].toLowerCase(Locale.ROOT))) {
                     completions.add(option);
                 }
             }
-        } else if (args.length == 2) {
-            completions.add("30s");
-            completions.add("5m");
-            completions.add("1h");
-            completions.add("1d");
+        } else if (args.length == 2 && !args[0].equalsIgnoreCase("purge")) {
+            for (String option : List.of("blocks", "entities", "inventory", "all")) {
+                if (option.startsWith(args[1].toLowerCase(Locale.ROOT))) {
+                    completions.add(option);
+                }
+            }
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("purge")) {
+            for (String option : List.of("all", "30s", "5m", "1h")) {
+                if (option.startsWith(args[1].toLowerCase(Locale.ROOT))) {
+                    completions.add(option);
+                }
+            }
+        } else if (args.length == 3 && !args[0].equalsIgnoreCase("purge")) {
+            completions.addAll(List.of("30s", "5m", "1h", "1d"));
         } else {
-            for (String option : List.of("radius=", "player=", "world=")) {
+            for (String option : List.of("radius=", "player=", "world=", "limit=")) {
                 if (option.startsWith(args[args.length - 1].toLowerCase(Locale.ROOT))) {
                     completions.add(option);
                 }
             }
         }
-
         return completions;
     }
 
-    private record ParsedOptions(Integer radius, String playerName, String worldName, Location center) {
+    private record ParsedOptions(Integer radius, String playerName, String worldName, Location center, Integer limit) {
+    }
+
+    private record ParsedRequest(Set<ActionType> types, long sinceEpochMillis, QueryFilter filter) {
     }
 }
